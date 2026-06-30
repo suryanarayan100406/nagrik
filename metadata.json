@@ -1,0 +1,6 @@
+{
+  "name": "Nagrik",
+  "description": "An agentic hyperlocal civic problem solver that triages, routes, and auto-escalates community complaints.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

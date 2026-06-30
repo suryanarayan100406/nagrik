@@ -1,0 +1,22 @@
+{
+  "short_name": "Nagrik",
+  "name": "Nagrik — Agentic Hyperlocal Civic Solver",
+  "description": "An agentic PWA where citizen reports are processed, routed, and auto-escalated by a multi-agent AI swarm.",
+  "icons": [
+    {
+      "src": "https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?q=80&w=192&auto=format&fit=crop",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?q=80&w=512&auto=format&fit=crop",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#020617",
+  "theme_color": "#4f46e5",
+  "display": "standalone",
+  "orientation": "portrait"
+}
