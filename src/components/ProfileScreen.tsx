@@ -42,6 +42,7 @@ export default function ProfileScreen({ user }: ProfileScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [regRole, setRegRole] = useState<'citizen' | 'admin'>('citizen');
   const [errorMsg, setErrorMsg] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -78,13 +79,23 @@ export default function ProfileScreen({ user }: ProfileScreenProps) {
     setIsSubmitting(true);
     try {
       if (isSignUp) {
-        await registerWithEmail(email, password, displayName);
+        await registerWithEmail(email, password, displayName, regRole);
       } else {
         await loginWithEmail(email, password);
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || "Authentication error. Please check your inputs.");
+      let friendlyError = err.message || "Authentication error. Please check your inputs.";
+      
+      if (err.code === "auth/user-not-found" || friendlyError.includes("user-not-found") || friendlyError.includes("invalid-credential")) {
+        friendlyError = "Account not found or invalid credentials. If this is your first time using Nagrik with this email, please click 'Register / Sign Up Here' below to create a new profile!";
+      } else if (err.code === "auth/wrong-password" || friendlyError.includes("wrong-password")) {
+        friendlyError = "Incorrect password. Please verify your credentials and try again.";
+      } else if (err.code === "auth/email-already-in-use" || friendlyError.includes("email-already-in-use")) {
+        friendlyError = "This email is already registered! Please click 'Sign In Instead' below to access your account.";
+      }
+      
+      setErrorMsg(friendlyError);
     } finally {
       setIsSubmitting(false);
     }
@@ -155,20 +166,53 @@ export default function ProfileScreen({ user }: ProfileScreenProps) {
             
             {/* Display Name Input (Only on Sign Up) */}
             {isSignUp && (
-              <div className="space-y-1.5 text-left">
-                <label className="text-[10px] font-mono font-bold text-text-tertiary uppercase tracking-widest block font-sans">Display Full Name</label>
-                <div className="relative">
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-tertiary" />
-                  <input
-                    type="text"
-                    required
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Enter your name"
-                    className="w-full bg-surface-900 border border-hairline rounded-xl py-2.5 pl-10 pr-4 text-xs text-text-primary focus:border-brand-orange-500 focus:outline-none transition font-sans placeholder-text-tertiary"
-                  />
+              <>
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[10px] font-mono font-bold text-text-tertiary uppercase tracking-widest block font-sans">Display Full Name</label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-tertiary" />
+                    <input
+                      type="text"
+                      required
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Enter your name"
+                      className="w-full bg-surface-900 border border-hairline rounded-xl py-2.5 pl-10 pr-4 text-xs text-text-primary focus:border-brand-orange-500 focus:outline-none transition font-sans placeholder-text-tertiary"
+                    />
+                  </div>
                 </div>
-              </div>
+
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[10px] font-mono font-bold text-text-tertiary uppercase tracking-widest block font-sans">Account Role (Testing Purpose)</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setRegRole('citizen')}
+                      className={`py-2 px-3 text-xs font-semibold rounded-xl border transition cursor-pointer ${
+                        regRole === 'citizen'
+                          ? "bg-brand-orange-500/10 border-brand-orange-500 text-brand-orange-500"
+                          : "bg-surface-900 border-hairline text-text-secondary hover:bg-surface-700"
+                      }`}
+                    >
+                      👤 Nagrik Citizen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRegRole('admin')}
+                      className={`py-2 px-3 text-xs font-semibold rounded-xl border transition cursor-pointer ${
+                        regRole === 'admin'
+                          ? "bg-emerald-500/10 border-emerald-500 text-emerald-400"
+                          : "bg-surface-900 border-hairline text-text-secondary hover:bg-surface-700"
+                      }`}
+                    >
+                      🛡️ System Admin
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-text-tertiary mt-1 leading-normal font-sans">
+                    *Admin role yields full decryption access and supervisor controls to test on-site repairs.
+                  </p>
+                </div>
+              </>
             )}
 
             {/* Email Address Input */}

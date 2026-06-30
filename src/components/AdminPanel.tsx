@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Issue, Ward, UserProfile } from "../types";
 import { 
   Shield, ShieldAlert, Trash2, CheckCircle, RefreshCw, Sparkles, 
-  Database, Activity, FileText, Layers, TrendingUp, UserCheck, AlertCircle, MapPin
+  Database, Activity, FileText, Layers, TrendingUp, UserCheck, AlertCircle, MapPin,
+  Camera, Upload
 } from "lucide-react";
 import { DEPARTMENTS } from "../data";
 
@@ -29,24 +30,58 @@ export default function AdminPanel({
   onDeleteWard,
   user
 }: AdminPanelProps) {
-  if (user?.email?.toLowerCase() !== "surya100406@gmail.com") {
+  if (user?.email?.toLowerCase() !== "surya100406@gmail.com" && user?.role !== "admin") {
     return (
       <div className="p-8 text-center bg-slate-900 text-text-primary h-full min-h-[500px] flex flex-col items-center justify-center space-y-4 font-sans border border-slate-800 rounded-2xl max-w-4xl mx-auto my-12 shadow-2xl">
         <ShieldAlert className="w-16 h-16 text-rose-500 animate-bounce" />
         <h2 className="text-xl font-bold tracking-tight uppercase">Access Denied — Administrative Clearance Required</h2>
         <p className="text-xs text-text-secondary max-w-md mx-auto leading-relaxed">
           You are logged in as <span className="font-mono text-amber-500 font-bold">{user?.email || "anonymous"}</span>.
-          Only <span className="font-mono text-emerald-500 font-bold">surya100406@gmail.com</span> is granted decryption clearance to mutate administrative registers.
+          Only administrator roles or master accounts are granted clearance to mutate administrative registers.
         </p>
       </div>
     );
   }
 
-  const [activeSubTab, setActiveSubTab] = useState<"grievances" | "wards" | "simulators" | "kpis">("grievances");
+  const [activeSubTab, setActiveSubTab] = useState<"grievances" | "dutyDesk" | "wards" | "simulators" | "kpis">("grievances");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
   const [newWardName, setNewWardName] = useState("");
   const [newWardOfficer, setNewWardOfficer] = useState("");
+
+  const [uploadingIssueId, setUploadingIssueId] = useState<string | null>(null);
+  const adminFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAdminFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && uploadingIssueId) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64Photo = reader.result as string;
+        const targetIssue = issues.find(i => i.id === uploadingIssueId);
+        if (targetIssue) {
+          onUpdateIssue({
+            ...targetIssue,
+            status: "fixed",
+            photoAfter: base64Photo,
+            agentLog: [
+              ...targetIssue.agentLog,
+              {
+                id: `admin-upload-${Date.now()}`,
+                agent: "Verification Agent",
+                action: "Official Repair Photo Uploaded",
+                reasoning: "Administrator uploaded physical repair confirmation photograph directly to the ledger.",
+                timestamp: new Date().toISOString()
+              }
+            ]
+          });
+          alert(`🎉 Successfully uploaded repair photo and set status to "fixed" for ${targetIssue.dnaId}!`);
+        }
+        setUploadingIssueId(null);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Mock Incident templates for seeding
   const mockTemplates = [
@@ -185,7 +220,7 @@ export default function AdminPanel({
 
     const updated: Issue = {
       ...issue,
-      status: "reverified",
+      status: "fixed",
       photoAfter: mockResolutionPhotos[Math.floor(Math.random() * mockResolutionPhotos.length)],
       agentLog: [
         ...issue.agentLog,
@@ -199,7 +234,7 @@ export default function AdminPanel({
       ]
     };
     onUpdateIssue(updated);
-    alert(`Simulated resolution action on ${issue.dnaId}: Set status to reverified & attached repair confirmation photo!`);
+    alert(`Simulated resolution action on ${issue.dnaId}: Set status to "fixed" and uploaded a repair confirmation photo! A verification notification has been sent to the citizens.`);
   };
 
   // Filter issues
@@ -213,6 +248,13 @@ export default function AdminPanel({
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6 pt-2 pb-16 px-4 animate-fade-in text-slate-700">
+      <input
+        ref={adminFileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleAdminFileChange}
+      />
       
       {/* Header and Branding Title */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-6">
@@ -255,6 +297,7 @@ export default function AdminPanel({
       <div className="border-b border-slate-200 flex gap-4 overflow-x-auto whitespace-nowrap scrollbar-none">
         {[
           { key: "grievances", label: "Grievances Grid", icon: Layers },
+          { key: "dutyDesk", label: "Official Duty Desk", icon: UserCheck },
           { key: "wards", label: "Wards & Jurisdictions", icon: MapPin },
           { key: "simulators", label: "Field Simulators", icon: Activity },
           { key: "kpis", label: "Transparency Audits", icon: Database }
@@ -363,31 +406,49 @@ export default function AdminPanel({
 
                         {/* Status Badge Select Controller */}
                         <td className="p-4 whitespace-nowrap">
-                          <select
-                            value={issue.status}
-                            onChange={(e) => {
-                              onUpdateIssue({
-                                ...issue,
-                                status: e.target.value as any,
-                                agentLog: [
-                                  ...issue.agentLog,
-                                  {
-                                    id: `admin-mut-${Date.now()}`,
-                                    agent: "Escalation Agent",
-                                    action: "Manual Status Override",
-                                    reasoning: `Administrator manually mutated status state from '${issue.status}' to '${e.target.value}'.`,
-                                    timestamp: new Date().toISOString()
-                                  }
-                                ]
-                              });
-                            }}
-                            className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[10px] font-mono text-slate-700 focus:outline-none focus:border-civic-primary cursor-pointer"
-                          >
-                            <option value="routed">routed</option>
-                            <option value="acknowledged">acknowledged</option>
-                            <option value="in_progress">in_progress</option>
-                            <option value="reverified">reverified</option>
-                          </select>
+                          <div className="flex flex-col gap-1.5 items-start">
+                            <select
+                              value={issue.status}
+                              onChange={(e) => {
+                                onUpdateIssue({
+                                  ...issue,
+                                  status: e.target.value as any,
+                                  agentLog: [
+                                    ...issue.agentLog,
+                                    {
+                                      id: `admin-mut-${Date.now()}`,
+                                      agent: "Escalation Agent",
+                                      action: "Manual Status Override",
+                                      reasoning: `Administrator manually mutated status state from '${issue.status}' to '${e.target.value}'.`,
+                                      timestamp: new Date().toISOString()
+                                    }
+                                  ]
+                                });
+                              }}
+                              className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[10px] font-mono text-slate-700 focus:outline-none focus:border-civic-primary cursor-pointer"
+                            >
+                              <option value="reported">reported</option>
+                              <option value="routed">routed</option>
+                              <option value="acknowledged">acknowledged</option>
+                              <option value="in_progress">in_progress</option>
+                              <option value="fixed">fixed</option>
+                              <option value="reverified">reverified</option>
+                            </select>
+                            
+                            {issue.status === "fixed" && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUploadingIssueId(issue.id);
+                                  setTimeout(() => adminFileInputRef.current?.click(), 50);
+                                }}
+                                className="text-[9.5px] font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100/50 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer"
+                              >
+                                <Camera className="w-3 h-3" />
+                                {issue.photoAfter ? "Change Repair Photo" : "Upload Repair Photo"}
+                              </button>
+                            )}
+                          </div>
                         </td>
 
                         {/* Witnesses */}
@@ -416,6 +477,294 @@ export default function AdminPanel({
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {activeSubTab === "dutyDesk" && (
+        <div className="space-y-6 animate-fade-in text-slate-800">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <h3 className="font-bold text-sm font-mono uppercase tracking-wide text-slate-800 flex items-center gap-2">
+              <UserCheck className="w-4 h-4 text-civic-primary" />
+              Municipal Dispatch & Repair Desk
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
+              Process active citizen complaints through the municipal resolution workflow. Perform quick status updates, log labor dispatches, and upload physical repair visual logs.
+            </p>
+          </div>
+
+          {/* Kanban Board Columns */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            
+            {/* Column 1: Acknowledged / Awaiting */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col space-y-4 min-h-[450px]">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-orange-500 animate-pulse"></span>
+                  <h4 className="text-xs font-bold font-mono uppercase tracking-wide text-slate-700">1. Acknowledged</h4>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-slate-200/60 font-mono text-[10px] font-bold text-slate-600">
+                  {issues.filter(i => i.status === "acknowledged" || i.status === "reported" || i.status === "routed").length}
+                </span>
+              </div>
+              <div className="space-y-3 flex-grow overflow-y-auto max-h-[500px]">
+                {issues.filter(i => i.status === "acknowledged" || i.status === "reported" || i.status === "routed").map(issue => {
+                  const isAwaitingAck = issue.status === "reported" || issue.status === "routed";
+                  return (
+                    <div key={issue.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition duration-200 space-y-3">
+                      <div>
+                        <div className="flex justify-between items-start gap-1">
+                          <span className="text-[9.5px] font-mono font-bold text-civic-primary">{issue.dnaId}</span>
+                          <span className="text-[8.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 font-bold border border-orange-200/50">
+                            {issue.status}
+                          </span>
+                        </div>
+                        <h5 className="text-xs font-bold text-slate-800 mt-1 line-clamp-1">{issue.title}</h5>
+                        <p className="text-[10px] text-slate-500 mt-1 line-clamp-2">{issue.description}</p>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                        <span className="text-[9px] font-mono font-medium text-slate-400">Witnesses: {issue.verifications}</span>
+                        {isAwaitingAck ? (
+                          <button
+                            onClick={() => {
+                              onUpdateIssue({
+                                ...issue,
+                                status: "acknowledged",
+                                agentLog: [
+                                  ...issue.agentLog,
+                                  {
+                                    id: `official-ack-${Date.now()}`,
+                                    agent: "Escalation Agent",
+                                    action: "Acknowledge Complaint",
+                                    reasoning: "Municipal command center received report, authenticated citizen visual proof, and officially mapped ticket to the ward officer dashboard.",
+                                    timestamp: new Date().toISOString()
+                                  }
+                                ]
+                              });
+                            }}
+                            className="px-2.5 py-1.5 bg-civic-primary text-white text-[10px] font-bold rounded-lg hover:opacity-90 transition cursor-pointer"
+                          >
+                            Acknowledge
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              onUpdateIssue({
+                                ...issue,
+                                status: "in_progress",
+                                agentLog: [
+                                  ...issue.agentLog,
+                                  {
+                                    id: `official-prog-${Date.now()}`,
+                                    agent: "Routing Agent",
+                                    action: "Dispatch Labor Teams",
+                                    reasoning: "Authorized immediate resource allocation. Field crew dispatched with specialized equipment to commence physical repairs.",
+                                    timestamp: new Date().toISOString()
+                                  }
+                                ]
+                              });
+                            }}
+                            className="px-2.5 py-1.5 bg-amber-500 text-slate-950 text-[10px] font-bold rounded-lg hover:opacity-90 transition cursor-pointer"
+                          >
+                            Start Repairs →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {issues.filter(i => i.status === "acknowledged" || i.status === "reported" || i.status === "routed").length === 0 && (
+                  <div className="text-center py-10 text-[10.5px] text-slate-400 font-mono">No tickets in queue.</div>
+                )}
+              </div>
+            </div>
+
+            {/* Column 2: In Progress */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col space-y-4 min-h-[450px]">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  <h4 className="text-xs font-bold font-mono uppercase tracking-wide text-slate-700">2. In Progress</h4>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-slate-200/60 font-mono text-[10px] font-bold text-slate-600">
+                  {issues.filter(i => i.status === "in_progress").length}
+                </span>
+              </div>
+              <div className="space-y-3 flex-grow overflow-y-auto max-h-[500px]">
+                {issues.filter(i => i.status === "in_progress").map(issue => {
+                  return (
+                    <div key={issue.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition duration-200 space-y-3">
+                      <div>
+                        <div className="flex justify-between items-start gap-1">
+                          <span className="text-[9.5px] font-mono font-bold text-civic-primary">{issue.dnaId}</span>
+                          <span className="text-[8.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-bold border border-amber-200/50">
+                            Active Repair
+                          </span>
+                        </div>
+                        <h5 className="text-xs font-bold text-slate-800 mt-1 line-clamp-1">{issue.title}</h5>
+                        <p className="text-[10px] text-slate-500 mt-1 line-clamp-2">{issue.description}</p>
+                      </div>
+
+                      <div className="flex flex-col gap-2 pt-2 border-t border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-mono font-medium text-slate-400">Crew deployed</span>
+                        </div>
+                        <div className="flex gap-1.5 w-full">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUploadingIssueId(issue.id);
+                              setTimeout(() => adminFileInputRef.current?.click(), 50);
+                            }}
+                            className="flex-1 px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 shadow-sm"
+                          >
+                            <Upload className="w-3 h-3" />
+                            Upload Photo
+                          </button>
+                          
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const mockResolutions = [
+                                "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=600&q=80",
+                                "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=600&q=80",
+                                "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=600&q=80"
+                              ];
+                              onUpdateIssue({
+                                ...issue,
+                                status: "fixed",
+                                photoAfter: mockResolutions[Math.floor(Math.random() * mockResolutions.length)],
+                                agentLog: [
+                                  ...issue.agentLog,
+                                  {
+                                    id: `official-fix-${Date.now()}`,
+                                    agent: "Verification Agent",
+                                    action: "Submit Repair Completion (Simulated)",
+                                    reasoning: "Field crew verified physical repairs have been executed successfully on-site. Simulated photographic proof uploaded to database.",
+                                    timestamp: new Date().toISOString()
+                                  }
+                                ]
+                              });
+                            }}
+                            className="px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg transition cursor-pointer font-sans"
+                            title="Mark Fixed with Mock Image"
+                          >
+                            Mock Fix
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {issues.filter(i => i.status === "in_progress").length === 0 && (
+                  <div className="text-center py-10 text-[10.5px] text-slate-400 font-mono">No active field repairs.</div>
+                )}
+              </div>
+            </div>
+
+            {/* Column 3: Fixed */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col space-y-4 min-h-[450px]">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <h4 className="text-xs font-bold font-mono uppercase tracking-wide text-slate-700">3. Fixed</h4>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-slate-200/60 font-mono text-[10px] font-bold text-slate-600">
+                  {issues.filter(i => i.status === "fixed").length}
+                </span>
+              </div>
+              <div className="space-y-3 flex-grow overflow-y-auto max-h-[500px]">
+                {issues.filter(i => i.status === "fixed").map(issue => {
+                  return (
+                    <div key={issue.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition duration-200 space-y-3">
+                      <div>
+                        <div className="flex justify-between items-start gap-1">
+                          <span className="text-[9.5px] font-mono font-bold text-civic-primary">{issue.dnaId}</span>
+                          <span className="text-[8.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold border border-emerald-200/50">
+                            Awaiting Audit
+                          </span>
+                        </div>
+                        <h5 className="text-xs font-bold text-slate-800 mt-1 line-clamp-1">{issue.title}</h5>
+                        {issue.photoAfter && (
+                          <div className="mt-2 relative h-16 rounded overflow-hidden border border-slate-200">
+                            <img src={issue.photoAfter} alt="Repair" className="w-full h-full object-cover" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-2 pt-2 border-t border-slate-100 w-full">
+                        <div className="flex items-center justify-between text-[9px] font-mono font-medium text-slate-500">
+                          <span>Awaiting Citizen Verification</span>
+                          <span className="flex h-2 w-2 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            onUpdateIssue({
+                              ...issue,
+                              agentLog: [
+                                ...issue.agentLog,
+                                {
+                                  id: `official-nudge-${Date.now()}`,
+                                  agent: "Escalation Agent",
+                                  action: "Dispatch Community Re-Verification Alert",
+                                  reasoning: "Municipal operator manually broadcasted a secondary mobile notification push to citizen spotters demanding a Physical visual verification audit.",
+                                  timestamp: new Date().toISOString()
+                                }
+                              ]
+                            });
+                            alert(`🔔 Community Verification Alert re-sent for ${issue.dnaId}! Citizens have been notified to perform physical reverification on-site.`);
+                          }}
+                          className="w-full px-2 py-1.5 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 text-[10px] font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-bell-ring"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/><path d="M22 8c0-2.3-.8-4.3-2-6"/></svg>
+                          Nudge Citizen Verification
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {issues.filter(i => i.status === "fixed").length === 0 && (
+                  <div className="text-center py-10 text-[10.5px] text-slate-400 font-mono">No fixed tickets awaiting audit.</div>
+                )}
+              </div>
+            </div>
+
+            {/* Column 4: Closed / Reverified */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col space-y-4 min-h-[450px]">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                  <h4 className="text-xs font-bold font-mono uppercase tracking-wide text-slate-700">4. Re-verified</h4>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-slate-200/60 font-mono text-[10px] font-bold text-slate-600">
+                  {issues.filter(i => i.status === "reverified").length}
+                </span>
+              </div>
+              <div className="space-y-3 flex-grow overflow-y-auto max-h-[500px]">
+                {issues.filter(i => i.status === "reverified").map(issue => {
+                  return (
+                    <div key={issue.id} className="bg-white/80 border border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition duration-200 space-y-2 opacity-80">
+                      <div className="flex justify-between items-start gap-1">
+                        <span className="text-[9.5px] font-mono font-bold text-slate-400">{issue.dnaId}</span>
+                        <span className="text-[8.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-bold border border-blue-200/50">
+                          Closed ✓
+                        </span>
+                      </div>
+                      <h5 className="text-xs font-bold text-slate-700 line-clamp-1">{issue.title}</h5>
+                      <span className="text-[9px] font-mono text-emerald-600 block">SLA Target Met Successfully</span>
+                    </div>
+                  );
+                })}
+                {issues.filter(i => i.status === "reverified").length === 0 && (
+                  <div className="text-center py-10 text-[10.5px] text-slate-400 font-mono">No closed tickets.</div>
+                )}
+              </div>
+            </div>
+
+          </div>
         </div>
       )}
 

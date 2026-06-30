@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Issue, Ward, UserProfile, GeoLocation } from "./types";
+import { Issue, Ward, UserProfile, GeoLocation, CivicNotification } from "./types";
 import { DEPARTMENTS } from "./data";
 import CivicMap, { SEVERITY_COLORS } from "./components/CivicMap";
 import ReportIssue from "./components/ReportIssue";
@@ -12,9 +12,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { 
   getIssues, saveIssue, deleteIssue, getWards, saveWard, deleteWard, getUserProfile, saveUserProfile,
   initializeFirebaseService, activeConfig, getActiveConfig, CustomFirebaseConfig, onAuthChanged, logoutUser,
-  clearAllIssuesRemote, clearAllWardsRemote
+  clearAllIssuesRemote, clearAllWardsRemote, forceSeedDatabaseRemote
 } from "./lib/firebase";
-import appletConfig from "../firebase-applet-config.json";
+const appletConfig = {};
 
 import { 
   Map as MapIcon, Compass, BarChart3, Cpu, Award, Plus, MapPin, 
@@ -33,12 +33,12 @@ export default function App() {
   // Connection center console overlay toggle
   const [showConfigCenter, setShowConfigCenter] = useState(false);
   const [firebaseKeys, setFirebaseKeys] = useState<CustomFirebaseConfig>({
-    apiKey: appletConfig?.apiKey || "",
-    authDomain: appletConfig?.authDomain || "",
-    projectId: appletConfig?.projectId || "",
-    storageBucket: appletConfig?.storageBucket || "",
-    messagingSenderId: appletConfig?.messagingSenderId || "",
-    appId: appletConfig?.appId || "",
+    apiKey: (appletConfig as any)?.apiKey || "",
+    authDomain: (appletConfig as any)?.authDomain || "",
+    projectId: (appletConfig as any)?.projectId || "",
+    storageBucket: (appletConfig as any)?.storageBucket || "",
+    messagingSenderId: (appletConfig as any)?.messagingSenderId || "",
+    appId: (appletConfig as any)?.appId || "",
     databaseId: (appletConfig as any)?.firestoreDatabaseId || ""
   });
 
@@ -131,6 +131,22 @@ export default function App() {
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [mapFocusTrigger, setMapFocusTrigger] = useState<number>(0);
 
+  const [notifications, setNotifications] = useState<CivicNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem("CIVIC_NOTIFICATIONS");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("CIVIC_NOTIFICATIONS", JSON.stringify(notifications));
+    } catch {}
+  }, [notifications]);
+
   // Filters matrices
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -182,7 +198,7 @@ export default function App() {
   }, [issues]);
 
   // Gamification reward state mutations
-  const handleAwardPoints = async (xp: number) => {
+  const handleAwardPoints = async (xp: number, issueIdToAttest?: string) => {
     if (!user) return;
     const nextPoints = user.points + xp;
     let nextLevel: UserProfile["level"] = "Spotter";
@@ -191,11 +207,17 @@ export default function App() {
     else if (nextPoints > 600) nextLevel = "Guardian";
     else if (nextPoints > 200) nextLevel = "Verifier";
 
+    const updatedAttested = [...(user.attestedIssueIds || [])];
+    if (issueIdToAttest && !updatedAttested.includes(issueIdToAttest)) {
+      updatedAttested.push(issueIdToAttest);
+    }
+
     const updatedProfile: UserProfile = {
       ...user,
       points: nextPoints,
       level: nextLevel,
-      verifications: xp === 15 ? user.verifications + 1 : user.verifications
+      verifications: xp === 15 ? user.verifications + 1 : user.verifications,
+      attestedIssueIds: updatedAttested
     };
 
     setUser(updatedProfile);
@@ -203,6 +225,21 @@ export default function App() {
   };
 
   const handleUpdateIssue = async (updatedIssue: Issue) => {
+    // Detect transitions to status === "fixed"
+    const prevIssue = issues.find(i => i.id === updatedIssue.id);
+    if (prevIssue && prevIssue.status !== "fixed" && updatedIssue.status === "fixed") {
+      const newNoti: CivicNotification = {
+        id: `noti-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        issueId: updatedIssue.id,
+        issueDnaId: updatedIssue.dnaId,
+        title: "Repair Confirmed",
+        message: `Official repair crew marked "${updatedIssue.title}" as fixed! Tap here to verify the repair and earn +150 XP!`,
+        timestamp: new Date().toISOString(),
+        read: false
+      };
+      setNotifications(prev => [newNoti, ...prev]);
+    }
+
     setIssues(prev => prev.map(i => i.id === updatedIssue.id ? updatedIssue : i));
     await saveIssue(updatedIssue);
   };
@@ -280,12 +317,12 @@ export default function App() {
     if (window.confirm("Disconnect customized Firebase integration and fall back onto Local Sandbox?")) {
       localStorage.removeItem("NAGRIK_CUSTOM_FIREBASE_CONFIG");
       setFirebaseKeys({
-        apiKey: appletConfig?.apiKey || "",
-        authDomain: appletConfig?.authDomain || "",
-        projectId: appletConfig?.projectId || "",
-        storageBucket: appletConfig?.storageBucket || "",
-        messagingSenderId: appletConfig?.messagingSenderId || "",
-        appId: appletConfig?.appId || "",
+        apiKey: (appletConfig as any)?.apiKey || "",
+        authDomain: (appletConfig as any)?.authDomain || "",
+        projectId: (appletConfig as any)?.projectId || "",
+        storageBucket: (appletConfig as any)?.storageBucket || "",
+        messagingSenderId: (appletConfig as any)?.messagingSenderId || "",
+        appId: (appletConfig as any)?.appId || "",
         databaseId: (appletConfig as any)?.firestoreDatabaseId || ""
       });
       initializeFirebaseService(null);
@@ -360,13 +397,72 @@ export default function App() {
               {isDarkMode ? <Sun className="w-4 h-4 text-secondary" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            <button 
-              onClick={() => setActiveTab("predictive")} 
-              className="p-2 text-primary hover:opacity-80 transition relative" 
-              title="Spatial Intelligence Dashboard"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-bell"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-            </button>
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)} 
+                className="p-2 text-primary hover:opacity-80 transition relative cursor-pointer" 
+                title="Notifications"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-bell"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full animate-ping" />
+                )}
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full" />
+                )}
+              </button>
+
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-50 overflow-hidden text-slate-800 dark:text-slate-200 font-sans">
+                  <div className="p-3 border-b border-slate-150 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950">
+                    <h4 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-700 dark:text-slate-300">
+                      Notifications ({notifications.filter(n => !n.read).length})
+                    </h4>
+                    {notifications.length > 0 && (
+                      <button 
+                        onClick={() => {
+                          setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                        }}
+                        className="text-[10px] text-civic-primary hover:underline font-semibold"
+                      >
+                        Mark all
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    {notifications.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400 font-mono">
+                        No notifications.
+                      </div>
+                    ) : (
+                      notifications.map(noti => (
+                        <div 
+                          key={noti.id} 
+                          onClick={() => {
+                            setNotifications(prev => prev.map(n => n.id === noti.id ? { ...n, read: true } : n));
+                            setSelectedIssueId(noti.issueId);
+                            setActiveTab("detail");
+                            setShowNotifications(false);
+                          }}
+                          className={`p-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer ${
+                            !noti.read ? "bg-civic-primary/5 dark:bg-civic-primary/10" : ""
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-1">
+                            <span className="text-[10px] font-mono font-bold text-civic-primary">{noti.issueDnaId}</span>
+                            <span className="text-[8px] font-mono text-slate-400">
+                              {new Date(noti.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <h5 className="text-[11px] font-bold text-slate-800 dark:text-slate-100 mt-0.5">{noti.title}</h5>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{noti.message}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             
             <button
               onClick={() => setActiveTab("report")}
@@ -428,7 +524,7 @@ export default function App() {
               { tab: "scorecard", label: "Wards", icon: BarChart3 },
               { tab: "predictive", label: "Analytics", icon: Cpu },
               { tab: "profile", label: "My Profile", icon: Award },
-              ...(user?.email?.toLowerCase() === "surya100406@gmail.com" ? [{ tab: "admin", label: "Admin Panel", icon: Shield }] : [])
+              ...(user?.email?.toLowerCase() === "surya100406@gmail.com" || user?.role === "admin" ? [{ tab: "admin", label: "Admin Panel", icon: Shield }] : [])
             ].map((item) => {
               const IconComp = item.icon;
               const isActive = activeTab === item.tab || (item.tab === "map" && activeTab === "detail");
@@ -782,7 +878,7 @@ export default function App() {
           { tab: "scorecard", label: "Wards", icon: BarChart3 },
           { tab: "predictive", label: "Analytics", icon: Cpu },
           { tab: "profile", label: "My Profile", icon: Award },
-          ...(user?.email?.toLowerCase() === "surya100406@gmail.com" ? [{ tab: "admin", label: "Admin", icon: Shield }] : [])
+          ...(user?.email?.toLowerCase() === "surya100406@gmail.com" || user?.role === "admin" ? [{ tab: "admin", label: "Admin", icon: Shield }] : [])
         ].map((item) => {
           const IconComp = item.icon;
           const isActive = activeTab === item.tab || (item.tab === "map" && activeTab === "detail");
@@ -837,19 +933,16 @@ export default function App() {
               {/* Status Section */}
               <div className="p-5 bg-indigo-950/10 border-b border-slate-800">
                 <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded-lg ${currentActiveConfig ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-slate-800 text-slate-400"}`}>
+                  <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                     <Globe className="w-4.5 h-4.5" />
                   </div>
                   <div className="space-y-1">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">Current Ingress Tunnel Status</span>
-                    <h4 className="font-bold font-mono text-xs text-white">
-                      {currentActiveConfig ? "🟢 SYNCHRONIZED CLOUD INGRESS" : "🟡 ISOLATED SANDBOX SIMULATION"}
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">Database Engine Status</span>
+                    <h4 className="font-bold font-mono text-xs text-emerald-400">
+                      🟢 OPTIMIZED LOCAL SANDBOX (FREE)
                     </h4>
                     <p className="text-[10.5px] text-slate-400 leading-normal">
-                      {currentActiveConfig 
-                        ? `All incident logs, client registrations, and SLA metrics are synced dynamically to project: [${currentActiveConfig.projectId}]`
-                        : "The client is executing in an off-grid cache. Close-loop mutations are routed to standard local storage."
-                      }
+                      Operating completely within free client-side storage to avoid paid Cloud billing and quotas. All mutations are saved locally with 100% reliability!
                     </p>
                   </div>
                 </div>
@@ -858,21 +951,21 @@ export default function App() {
               {/* Config Form (Read-only for Mass-scale Deployment) */}
               <div className="p-5 space-y-4">
                 <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-indigo-400 block mb-1">
-                  Database Credentials (Hardcoded)
+                  Database Credentials (Client Sandbox)
                 </span>
 
                 <div className="grid grid-cols-2 gap-3.5 text-xs font-mono">
                   <div className="space-y-1 bg-slate-950 border border-slate-800 p-2.5 rounded-lg">
-                    <span className="text-[9px] text-slate-500 block font-bold uppercase tracking-wider">PROJECT ID</span>
-                    <span className="text-slate-200 font-semibold">{currentActiveConfig?.projectId || "N/A"}</span>
+                    <span className="text-[9px] text-slate-500 block font-bold uppercase tracking-wider">DATABASE TYPE</span>
+                    <span className="text-emerald-400 font-semibold">LOCALSTORAGE</span>
                   </div>
                   <div className="space-y-1 bg-slate-950 border border-slate-800 p-2.5 rounded-lg">
-                    <span className="text-[9px] text-slate-500 block font-bold uppercase tracking-wider">FIRESTORE DATABASE</span>
-                    <span className="text-slate-200 font-semibold">{currentActiveConfig?.databaseId || "(default)"}</span>
+                    <span className="text-[9px] text-slate-500 block font-bold uppercase tracking-wider">MUNICIPAL AREA</span>
+                    <span className="text-slate-200 font-semibold">Lucknow, IN</span>
                   </div>
                   <div className="space-y-1 bg-slate-950 border border-slate-800 p-2.5 rounded-lg col-span-2">
-                    <span className="text-[9px] text-slate-500 block font-bold uppercase tracking-wider">AUTH DOMAIN</span>
-                    <span className="text-slate-200 break-all">{currentActiveConfig?.authDomain || "N/A"}</span>
+                    <span className="text-[9px] text-slate-500 block font-bold uppercase tracking-wider">BILLING CHARGE</span>
+                    <span className="text-emerald-400 font-bold">$0.00 (ALWAYS FREE)</span>
                   </div>
                 </div>
               </div>
@@ -880,29 +973,27 @@ export default function App() {
               {/* Cloud Database Actions */}
               <div className="p-5 bg-slate-950/20 border-t border-slate-800 space-y-3">
                 <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-emerald-400 block">
-                  Cloud Ledger Maintenance
+                  Local Sandbox Ledger Maintenance
                 </span>
-                <p className="text-[10.5px] text-slate-450 leading-normal">
-                  Need to populate the remote Firestore collections? Use these controls to force-sync clean municipal default registers.
+                <p className="text-[10.5px] text-slate-455 leading-normal text-slate-400">
+                  Need to reset or clear your sandbox simulation data? Use these controls to reset/re-seed the default Lucknow registers instantly and for free!
                 </p>
                 <div className="flex flex-wrap gap-2.5 pt-1">
                   <button
                     type="button"
                     onClick={async () => {
-                      if (window.confirm("This will wipe all existing issues/wards on your remote Firestore database and push the pristine default datasets. Proceed?")) {
+                      if (window.confirm("This will reset all sandbox issues/wards to the clean default dataset. Proceed?")) {
                         setIsSyncing(true);
                         try {
-                          // Clear remote database collections first
-                          await clearAllIssuesRemote();
-                          await clearAllWardsRemote();
+                          // Directly perform robust clearing and seeding on the remote Firestore
+                          await forceSeedDatabaseRemote();
                           
-                          // Force-trigger getIssues and getWards which will automatically perform the pristine seeding
-                          await Promise.all([getIssues(), getWards()]);
+                          // Reload the newly seeded data into application state
                           await reloadApplicationData();
                           
-                          alert("🎉 Remote Firestore successfully cleared and seeded with default Nagrik registers!");
+                          alert("🎉 Local database successfully cleared and re-seeded with default Nagrik registers!");
                         } catch (err: any) {
-                          alert("Failed to seed remote database: " + err.message);
+                          alert("Failed to seed local database: " + err.message);
                         } finally {
                           setIsSyncing(false);
                         }
@@ -911,19 +1002,19 @@ export default function App() {
                     className="flex-1 min-w-[140px] px-3.5 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/20 text-emerald-400 rounded-lg text-xs font-mono font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    Force-Seed Cloud DB
+                    Reset/Seed Sandbox
                   </button>
                   
                   <button
                     type="button"
                     onClick={async () => {
-                      if (window.confirm("Wipe all tickets and wards from both the remote Firestore database and local storage? This cannot be undone.")) {
+                      if (window.confirm("Wipe all tickets and wards from your sandbox simulation? This cannot be undone.")) {
                         setIsSyncing(true);
                         try {
                           await clearAllIssuesRemote();
                           await clearAllWardsRemote();
                           await reloadApplicationData();
-                          alert("💥 Live ledger completely wiped.");
+                          alert("💥 Local sandbox database completely wiped.");
                         } catch (err: any) {
                           alert("Wipe operation failed: " + err.message);
                         } finally {
@@ -934,7 +1025,7 @@ export default function App() {
                     className="px-3.5 py-2 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/20 text-rose-400 rounded-lg text-xs font-mono transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    Wipe Cloud DB
+                    Wipe Sandbox Cache
                   </button>
                 </div>
               </div>

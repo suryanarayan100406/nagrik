@@ -11,7 +11,7 @@ interface IssueDetailsProps {
   onBack: () => void;
   onUpdateIssue: (updatedIssue: Issue) => void;
   onDeleteIssue?: (issueId: string) => void;
-  onAwardPoints: (points: number) => void;
+  onAwardPoints: (points: number, issueIdToAttest?: string) => void;
   wards: Ward[];
   user?: UserProfile | null;
 }
@@ -37,6 +37,10 @@ export default function IssueDetails({
   const [isEscalating, setIsEscalating] = useState(false);
   const [isFixUploading, setIsFixUploading] = useState(false);
   const [fixPhoto, setFixPhoto] = useState<string | null>(null);
+  
+  const [showConfirmApprove, setShowConfirmApprove] = useState(false);
+  const [showConfirmReject, setShowConfirmReject] = useState(false);
+  const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
   
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   
@@ -91,6 +95,7 @@ export default function IssueDetails({
 
   // Raise community priority
   const handleVerifyPriority = () => {
+    if (user?.attestedIssueIds?.includes(issue.id)) return;
     setIsVerifying(true);
     setTimeout(() => {
       const updated: Issue = {
@@ -99,7 +104,7 @@ export default function IssueDetails({
         dangerScore: Math.min(100, issue.dangerScore + 2) // verified issues raise danger weight slightly
       };
       onUpdateIssue(updated);
-      onAwardPoints(15); // reward standard verifier
+      onAwardPoints(15, issue.id); // reward standard verifier and mark as attested
       setIsVerifying(false);
     }, 600);
   };
@@ -205,6 +210,29 @@ export default function IssueDetails({
     reader.readAsDataURL(file);
   };
 
+  const handleManualBypass = (base64Photo: string) => {
+    const logId = "verify-bypass-" + Date.now();
+    const newStep: AgentStep = {
+      id: logId,
+      agent: "Verification Agent",
+      action: "Manual Citizen Verification (AI Bypass)",
+      toolCall: "bypassVerification()",
+      reasoning: "Citizen performed a physical site audit and verified the repair manually, bypassing AI visual analysis due to image parsing limitations or API downtime.",
+      timestamp: new Date().toISOString()
+    };
+
+    const updated: Issue = {
+      ...issue,
+      photoAfter: base64Photo,
+      status: "reverified",
+      agentLog: [...issue.agentLog, newStep]
+    };
+
+    onUpdateIssue(updated);
+    onAwardPoints(150);
+    alert("🎉 SUCCESS! Manual Citizen Verification complete. 150 Community Points awarded!");
+  };
+
   // Helper to process a selected or dropped file for proof-of-fix
   const processFixFile = async (file: File) => {
     setIsFixUploading(true);
@@ -250,12 +278,18 @@ export default function IssueDetails({
           onAwardPoints(150); // Big bonus for verifying a visual fix!
           alert("🎉 SUCCESS! The Verification Agent verified your Proof-of-Fix photo. 150 Community Points awarded!");
         } else {
-          alert(`⚠️ Verification Unsuccessful: ${data.rationale || "The agent could not safely verify the repair work. Please upload a clearer snapshot."}`);
+          const bypass = confirm(`⚠️ AI Verification Unsuccessful: ${data.rationale || "The agent could not safely verify the repair work."}\n\nWould you like to manually verify the repair anyway? (This bypasses AI checks and marks the issue as resolved)`);
+          if (bypass) {
+            handleManualBypass(base64Photo);
+          }
         }
 
       } catch (err: any) {
         console.error(err);
-        alert("Verification failed: " + err.message);
+        const bypass = confirm(`⚠️ AI Verification Failed: ${err.message || "Failed to reach verification backend."}\n\nWould you like to manually verify the repair anyway? (This bypasses AI checks and marks the issue as resolved)`);
+        if (bypass) {
+          handleManualBypass(base64Photo);
+        }
       } finally {
         setIsFixUploading(false);
       }
@@ -365,11 +399,17 @@ export default function IssueDetails({
               onAwardPoints(150); // Big bonus for verifying a visual fix!
               alert("🎉 SUCCESS! The Verification Agent verified your Proof-of-Fix photo. 150 Community Points awarded!");
             } else {
-              alert(`⚠️ Verification Unsuccessful: ${data.rationale || "The agent could not safely verify the repair work. Please upload a clearer snapshot."}`);
+              const bypass = confirm(`⚠️ AI Verification Unsuccessful: ${data.rationale || "The agent could not safely verify the repair work."}\n\nWould you like to manually verify the repair anyway? (This bypasses AI checks and marks the issue as resolved)`);
+              if (bypass) {
+                handleManualBypass(repairedBase64);
+              }
             }
           } catch (err: any) {
             console.error(err);
-            alert("Verification failed: " + err.message);
+            const bypass = confirm(`⚠️ AI Verification Failed: ${err.message || "Failed to reach verification backend."}\n\nWould you like to manually verify the repair anyway? (This bypasses AI checks and marks the issue as resolved)`);
+            if (bypass) {
+              handleManualBypass(repairedBase64);
+            }
           } finally {
             setIsFixUploading(false);
           }
@@ -458,76 +498,262 @@ export default function IssueDetails({
               </div>
 
               {issue.photoAfter ? (
-                <div className="relative aspect-video rounded-xl overflow-hidden border border-civic-muted/20 bg-civic-bg">
-                  <img 
-                    src={issue.photoAfter} 
-                    alt="Repaired Incident" 
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                  <span className="absolute top-2 left-2 px-2.5 py-1 bg-[#051111]/80 backdrop-blur rounded text-[10px] font-mono uppercase font-bold text-emerald-500 border border-emerald-500/10 animate-pulse">
-                    After: Verified Fix 
-                  </span>
-                </div>
-              ) : (
-                /* No after photo, interactive fix submission block */
-                <div 
-                  onDragOver={handleFixDragOver}
-                  onDrop={handleFixDrop}
-                  onClick={(e) => {
-                    if (e.target === e.currentTarget) {
-                      fileInputRef.current?.click();
-                    }
-                  }}
-                  className="border-2 border-dashed border-civic-muted/20 hover:border-civic-primary/50 rounded-xl p-5 flex flex-col items-center justify-center text-center bg-civic-bg/50 py-6 cursor-pointer transition-all hover:bg-civic-bg"
-                >
-                  <div className="w-10 h-10 rounded-full bg-civic-card flex items-center justify-center text-civic-primary mb-3 shadow-sm">
-                    <CheckCircle2 className="w-5 h-5" />
+                <div className="space-y-3">
+                  <div className="relative aspect-video rounded-xl overflow-hidden border border-civic-muted/20 bg-civic-bg">
+                    <img 
+                      src={issue.photoAfter} 
+                      alt="Repaired Incident" 
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                    <span className={`absolute top-2 left-2 px-2.5 py-1 bg-[#051111]/80 backdrop-blur rounded text-[10px] font-mono uppercase font-bold border ${
+                      issue.status === "reverified" ? "text-indigo-400 border-indigo-400/20" : "text-emerald-500 border-emerald-500/20 animate-pulse"
+                    }`}>
+                      {issue.status === "reverified" ? "After: Reverified & Closed" : "After: Repair Completed"}
+                    </span>
                   </div>
-                  <p className="text-civic-text text-xs font-semibold">Has this been repaired?</p>
-                  <p className="text-civic-muted text-[10px] mt-1 mb-4 max-w-[220px]">
-                    Drag & drop the repair photo, click to browse, or try a <strong>Simulated Repair</strong>.
-                  </p>
-                  
-                  {isFixUploading ? (
-                    <div className="text-xs text-civic-primary font-mono flex items-center gap-1.5 animate-pulse bg-civic-card px-4 py-2 rounded-xl border border-civic-primary/20">
-                       <Loader2 className="w-4 h-4 animate-spin text-civic-primary" />
-                      Analyzing & Comparing...
-                    </div>
-                  ) : (
-                    <div className="flex flex-col sm:flex-row gap-2 w-full max-w-[280px]">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          fileInputRef.current?.click();
-                        }}
-                        className="flex-grow px-3 py-2 bg-civic-primary hover:bg-[#13857F] rounded-xl text-[11px] font-bold text-white transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
-                      >
-                        <Camera className="w-3.5 h-3.5" />
-                        Upload Photo
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation(); // prevent triggering input click
-                          handleSimulateDemoRepair();
-                        }}
-                        className="flex-1 px-3 py-2 bg-amber-500 hover:bg-amber-600 rounded-xl text-[11px] font-bold text-white transition flex items-center justify-center gap-1.5 shadow"
-                      >
-                        <Zap className="w-3.5 h-3.5" />
-                        Simulate Repair
-                      </button>
+
+                  {/* Accountability console if status is fixed */}
+                  {issue.status === "fixed" && (
+                    <div className="bg-civic-bg/50 border border-emerald-500/10 p-4 rounded-xl space-y-3.5 mt-2 shadow-sm">
+                      <div className="flex items-center gap-2">
+                        <Users className="w-4 h-4 text-emerald-500" />
+                        <h4 className="text-xs font-mono font-bold text-civic-text uppercase tracking-wider">
+                          Citizen Accountability Audit
+                        </h4>
+                      </div>
+                      
+                      <p className="text-[10px] text-civic-muted leading-relaxed font-sans">
+                        Administrators have uploaded this repair confirmation. Conduct a physical audit on-site and vote on its resolution authenticity below.
+                      </p>
+
+                      {feedbackMsg && (
+                        <div className={`p-3 rounded-lg border text-[10.5px] font-sans leading-relaxed space-y-2 ${
+                          feedbackMsg.type === 'success' 
+                            ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400' 
+                            : feedbackMsg.type === 'error' 
+                            ? 'bg-rose-950/40 border-rose-500/30 text-rose-400'
+                            : 'bg-indigo-950/40 border-indigo-500/30 text-indigo-400'
+                        }`}>
+                          <p>{feedbackMsg.text}</p>
+                          <button
+                            type="button"
+                            onClick={() => setFeedbackMsg(null)}
+                            className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-text-primary rounded text-[9px] font-mono uppercase font-bold cursor-pointer transition border-0"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Confirm Approve Dialog */}
+                      {showConfirmApprove && (
+                        <div className="bg-emerald-950/20 border border-emerald-500/20 p-3.5 rounded-xl space-y-3">
+                          <p className="text-[10.5px] text-emerald-400 font-sans font-bold flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            Confirm Repair Authenticity?
+                          </p>
+                          <p className="text-[10px] text-civic-muted leading-relaxed font-sans">
+                            This will permanently close this incident as Re-verified and award you +150 Community Points (XP) for performing an active on-site civic audit.
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const logId = "citizen-approve-" + Date.now();
+                                const newStep: AgentStep = {
+                                  id: logId,
+                                  agent: "Verification Agent",
+                                  action: "Citizen Audit Approved",
+                                  toolCall: "voteApprove()",
+                                  reasoning: `Community auditor ${user?.name || "Nagrik"} completed an on-site physical inspection and voted YES. The repair is marked as fully verified.`,
+                                  timestamp: new Date().toISOString()
+                                };
+
+                                const updated: Issue = {
+                                  ...issue,
+                                  status: "reverified",
+                                  verifications: (issue.verifications || 0) + 1,
+                                  agentLog: [...issue.agentLog, newStep]
+                                };
+                                onUpdateIssue(updated);
+                                onAwardPoints(150, issue.id);
+                                setFeedbackMsg({
+                                  text: "🎉 SUCCESS! Thank you for your active citizenship. You have been awarded +150 XP, and the issue is marked as Re-verified!",
+                                  type: 'success'
+                                });
+                                setShowConfirmApprove(false);
+                              }}
+                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer border-0 transition"
+                            >
+                              Yes, Confirm
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowConfirmApprove(false)}
+                              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-text-secondary rounded-lg text-[10px] font-bold cursor-pointer border-0 transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Confirm Reject/Dispute Dialog */}
+                      {showConfirmReject && (
+                        <div className="bg-rose-950/20 border border-rose-500/20 p-3.5 rounded-xl space-y-3">
+                          <p className="text-[10.5px] text-rose-400 font-sans font-bold flex items-center gap-1.5">
+                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                            Dispute Repair Authenticity?
+                          </p>
+                          <p className="text-[10px] text-civic-muted leading-relaxed font-sans">
+                            This will file an official dispute against this repair's quality/authenticity. Total disputes will increment towards the re-escalation threshold. If disputes reach 5/5, the issue is forcefully re-escalated.
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newRejections = (issue.rejections || 0) + 1;
+                                const isEscalated = newRejections >= 5;
+
+                                let updated: Issue;
+                                if (isEscalated) {
+                                  // CRITICAL RE-ESCALATION
+                                  updated = {
+                                    ...issue,
+                                    rejections: newRejections,
+                                    status: "in_progress", // reset back so they must repair again
+                                    photoAfter: null, // clear the invalid photo
+                                    escalationLevel: 3, // escalate threat level to Max
+                                    agentLog: [
+                                      ...issue.agentLog,
+                                      {
+                                        id: `critical-reescalation-${Date.now()}`,
+                                        agent: "Escalation Agent",
+                                        action: "CRITICAL RE-ESCALATION: Dispute Threshold Breached",
+                                        reasoning: `Citizen audit strongly rejected the uploaded repair photograph. The dispute rate has crossed the critical threshold of 5 rejections (Current rejections: ${newRejections}). The ticket is immediately escalated to the Zonal Commissioner of Lucknow Municipal Corporation and Zonal Command. The fix has been marked invalid, and the crew is re-routed for physical correction.`,
+                                        timestamp: new Date().toISOString()
+                                      }
+                                    ]
+                                  };
+                                  setFeedbackMsg({
+                                    text: `🚨 CRITICAL ESCALATION TRIGGERED!\n\nThis repair has received ${newRejections} citizen rejections! The uploaded proof has been invalidated and removed. The ticket is now escalated directly to the Lucknow Zonal Commissioner under max priority.`,
+                                    type: 'error'
+                                  });
+                                } else {
+                                  updated = {
+                                    ...issue,
+                                    rejections: newRejections,
+                                    agentLog: [
+                                      ...issue.agentLog,
+                                      {
+                                        id: `citizen-dispute-${Date.now()}`,
+                                        agent: "Verification Agent",
+                                        action: "Citizen Resolution Disputed",
+                                        reasoning: `Citizen ${user?.name || "Nagrik"} conducted an on-site audit and marked the repair as inadequate. Current disputes: ${newRejections}/5. Awaiting further verification or re-escalation.`,
+                                        timestamp: new Date().toISOString()
+                                      }
+                                    ]
+                                  };
+                                  setFeedbackMsg({
+                                    text: `⚠️ Dispute Filed successfully. Total rejections: ${newRejections}/5. If the count reaches 5, the issue will be forcefully re-escalated to higher authorities.`,
+                                    type: 'info'
+                                  });
+                                }
+                                onUpdateIssue(updated);
+                                setShowConfirmReject(false);
+                              }}
+                              className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-bold cursor-pointer border-0 transition"
+                            >
+                              Confirm Dispute
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowConfirmReject(false)}
+                              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-text-secondary rounded-lg text-[10px] font-bold cursor-pointer border-0 transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Main Vote Buttons (Show when no confirm panels are open) */}
+                      {!showConfirmApprove && !showConfirmReject && !feedbackMsg && (
+                        <div className="flex gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!user) {
+                                setFeedbackMsg({
+                                  text: "⚠️ Please authenticate/login first to submit an accountability vote.",
+                                  type: 'error'
+                                });
+                                return;
+                              }
+                              setShowConfirmApprove(true);
+                            }}
+                            className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1 border-0"
+                          >
+                            <CheckCircle2 className="w-4 h-4 text-white" />
+                            Yes, Approved
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!user) {
+                                setFeedbackMsg({
+                                  text: "⚠️ Please authenticate/login first to submit an accountability vote.",
+                                  type: 'error'
+                                });
+                                return;
+                              }
+                              setShowConfirmReject(true);
+                            }}
+                            className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1 border-0"
+                          >
+                            <AlertTriangle className="w-4 h-4 text-white" />
+                            No, Dispute
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between text-[10px] font-mono text-civic-muted border-t border-civic-muted/10 pt-2.5">
+                        <span>Rejection Counter:</span>
+                        <span className={`font-bold ${issue.rejections && issue.rejections >= 4 ? "text-rose-500 animate-pulse" : "text-civic-text"}`}>
+                          {issue.rejections || 0} / 5 Disputes
+                        </span>
+                      </div>
                     </div>
                   )}
-                  <input 
-                    ref={fileInputRef}
-                    type="file" 
-                    accept="image/*" 
-                    onChange={handleFixPhotoChange} 
-                    className="hidden" 
-                    disabled={isFixUploading}
-                  />
+
+                  {issue.status === "reverified" && (
+                    <div className="bg-indigo-500/5 border border-indigo-500/10 p-3.5 rounded-xl flex gap-2.5 items-start mt-2">
+                      <Award className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-[10px] font-mono font-bold text-indigo-400 uppercase tracking-widest block">
+                          Verified & Resolved
+                        </span>
+                        <p className="text-[10px] text-civic-muted leading-relaxed mt-1 font-sans">
+                          Active community auditors checked this repair on-site and approved its physical correctness. The ledger record is now sealed.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* No after photo uploaded yet - clean non-interactive state card */
+                <div className="border border-dashed border-civic-muted/20 rounded-xl p-5 flex flex-col items-center justify-center text-center bg-civic-bg/40 py-6">
+                  <div className="w-10 h-10 rounded-full bg-civic-card flex items-center justify-center text-civic-muted mb-3 shadow-sm">
+                    <Clock className="w-5 h-5 text-amber-500 animate-spin" />
+                  </div>
+                  <h4 className="text-civic-text text-xs font-semibold uppercase tracking-wider font-mono">
+                    Awaiting Crew Action
+                  </h4>
+                  <p className="text-civic-muted text-[10px] mt-1.5 leading-relaxed max-w-[240px] font-sans">
+                    The Zonal Command center has dispatched maintenance crew. The physical audit console and Yes/No resolution vote options will unlock once the administrator submits the visual proof of repair.
+                  </p>
                 </div>
               )}
             </div>
@@ -597,12 +823,16 @@ export default function IssueDetails({
             
             {issue.status !== "reverified" && (
               <button
-                disabled={isVerifying}
+                disabled={isVerifying || user?.attestedIssueIds?.includes(issue.id)}
                 onClick={handleVerifyPriority}
-                className="px-3.5 py-2 bg-civic-primary hover:bg-[#13857F] hover:scale-105 rounded-xl text-xs font-bold text-white transition shadow flex items-center gap-1.5 border border-civic-primary/50 disabled:opacity-50 cursor-pointer"
+                className="px-3.5 py-2 bg-civic-primary hover:bg-[#13857F] hover:scale-105 rounded-xl text-xs font-bold text-white transition shadow flex items-center gap-1.5 border border-civic-primary/50 disabled:opacity-50 disabled:scale-100 disabled:bg-slate-800 disabled:text-slate-500 disabled:border-slate-800 cursor-pointer"
               >
-                {isVerifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5 text-civic-secondary" />}
-                Attest & Verify (+15 pts)
+                {isVerifying ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Shield className="w-3.5 h-3.5 text-civic-secondary" />
+                )}
+                {user?.attestedIssueIds?.includes(issue.id) ? "Already Attested" : "Attest & Verify (+15 pts)"}
               </button>
             )}
           </div>

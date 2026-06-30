@@ -36,6 +36,7 @@ export interface Issue {
   socialPostText: string;
   agentLog: AgentStep[];
   createdAt: string;
+  rejections?: number; // Tracks disputes/rejections from citizens
 }
 
 export interface Ward {
@@ -55,4 +56,16 @@ export interface UserProfile {
   email?: string;
   uid?: string;
   photoURL?: string;
+  attestedIssueIds?: string[];
+  role?: 'citizen' | 'admin';
+}
+
+export interface CivicNotification {
+  id: string;
+  issueId: string;
+  issueDnaId: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
 }

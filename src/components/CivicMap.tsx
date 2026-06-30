@@ -283,7 +283,8 @@ export default function CivicMap({
             html: el,
             className: "custom-glowing-issue",
             iconSize: [50, 50],
-            iconAnchor: [25, 25]
+            iconAnchor: [25, 25],
+            popupAnchor: [0, -15]
           })
         }).addTo(map);
 
@@ -314,7 +315,7 @@ export default function CivicMap({
         markersRef.current[issue.id] = marker;
       });
     }
-  }, [issues, predictiveMode, predictedHotspots, reportCoordinates, interactiveReportSelection]);
+  }, [issues, selectedIssue, predictiveMode, predictedHotspots, reportCoordinates, interactiveReportSelection]);
 
   // Separate effect to handle flyTo focus transitions and popups cleanly
   useEffect(() => {
@@ -322,37 +323,32 @@ export default function CivicMap({
     if (!map || !selectedIssue || predictiveMode || interactiveReportSelection) return;
 
     const targetCoords: [number, number] = [selectedIssue.geo.lat, selectedIssue.geo.lng];
-    const currentCenter = map.getCenter();
-    const distance = currentCenter.distanceTo(targetCoords);
 
-    // Open popup helper
-    const openPopup = () => {
-      if (markersRef.current[selectedIssue.id]) {
-        markersRef.current[selectedIssue.id].openPopup();
-      }
-    };
+    // Delay invalidating size and flying to the point slightly to allow DOM layouts/transitions to finish.
+    // This completely resolves Leaflet offset/centering bugs when container sizes dynamically change.
+    const timer = setTimeout(() => {
+      const currentMap = mapInstanceRef.current;
+      if (!currentMap) return;
 
-    if (distance < 50) {
-      // Very close: just pan and open popup directly
-      map.panTo(targetCoords, { animate: true });
-      openPopup();
-    } else if (distance < 3000) {
-      // Moderate distance: smooth direct transition at zoom level 16 without flyTo's dramatic zoom-out
-      map.setView(targetCoords, 16, {
+      currentMap.invalidateSize();
+
+      // flyTo is extremely robust for precise, smooth zoom-in (level 18) at the exact target coordinates
+      currentMap.flyTo(targetCoords, 18, {
         animate: true,
-        duration: 0.8
+        duration: 1.0
       });
-      const timer = setTimeout(openPopup, 450);
-      return () => clearTimeout(timer);
-    } else {
-      // Large distance: perform flyTo flight paths
-      map.flyTo(targetCoords, 16, {
-        animate: true,
-        duration: 1.2
-      });
-      const timer = setTimeout(openPopup, 850);
-      return () => clearTimeout(timer);
-    }
+
+      // Open the marker's popup exactly after the flyTo flight animation finishes
+      const popupTimer = setTimeout(() => {
+        if (markersRef.current[selectedIssue.id]) {
+          markersRef.current[selectedIssue.id].openPopup();
+        }
+      }, 1050);
+
+      return () => clearTimeout(popupTimer);
+    }, 60);
+
+    return () => clearTimeout(timer);
   }, [selectedIssue, focusKey, predictiveMode, interactiveReportSelection]);
 
   return (
